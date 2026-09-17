@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">Drone Pilot 3D</string>
+    <string name="mode_assisted">ASSISTED</string>
+    <string name="mode_acro">ACRO</string>
+    <string name="cam_fpv">FPV</string>
+    <string name="cam_chase">CHASE</string>
+    <string name="reset_drone">RESET</string>
+</resources>

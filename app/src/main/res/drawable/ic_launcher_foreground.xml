@@ -1,0 +1,41 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Quadcopter Frame Arms (X shape) -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M32,32 L76,76 M76,32 L32,76" />
+    <!-- Center Body / Canopy -->
+    <path
+        android:fillColor="#E0E1DD"
+        android:pathData="M54,40 L64,54 L54,68 L44,54 Z" />
+    <!-- FPV Camera lens -->
+    <path
+        android:fillColor="#FF1744"
+        android:pathData="M54,37 A5,5 0 1 0 54,47 A5,5 0 1 0 54,37 Z" />
+    <!-- 4 Rotors / Motor Guards -->
+    <!-- Top-Left Rotor -->
+    <path
+        android:strokeColor="#00E676"
+        android:strokeWidth="3.5"
+        android:pathData="M32,20 A12,12 0 1 0 32,44 A12,12 0 1 0 32,20 Z" />
+    <!-- Top-Right Rotor -->
+    <path
+        android:strokeColor="#00E676"
+        android:strokeWidth="3.5"
+        android:pathData="M76,20 A12,12 0 1 0 76,44 A12,12 0 1 0 76,20 Z" />
+    <!-- Bottom-Left Rotor -->
+    <path
+        android:strokeColor="#FF9100"
+        android:strokeWidth="3.5"
+        android:pathData="M32,64 A12,12 0 1 0 32,88 A12,12 0 1 0 32,64 Z" />
+    <!-- Bottom-Right Rotor -->
+    <path
+        android:strokeColor="#FF9100"
+        android:strokeWidth="3.5"
+        android:pathData="M76,64 A12,12 0 1 0 76,88 A12,12 0 1 0 76,64 Z" />
+</vector>
