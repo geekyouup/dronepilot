@@ -1,6 +1,7 @@
 package com.droid.dronepilot.renderer
 
 import android.opengl.GLES20
+import com.droid.dronepilot.physics.Vector3
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
@@ -344,129 +345,165 @@ object MeshFactory {
         )
     }
 
+    private data class CloudTri(val a: Vector3, val b: Vector3, val c: Vector3)
+
     /**
-     * Builds a rich 3D volumetric sky filled with multi-altitude clouds.
-     * Provides essential motion parallax, spatial orientation, and visual landmarks
-     * when looking up or flying vertical acro maneuvers.
+     * Builds a rich 3D stylized low-poly volumetric sky filled with multi-tiered clouds.
+     * Uses flat-shaded subdivided octaspheres with mathematically proven outward CCW winding,
+     * completely eliminating pole singularities, inverted triangles, and Z-fighting artifacts.
      */
     fun createCloudClusterMesh(): RenderMesh {
         val vList = mutableListOf<Float>()
         val nList = mutableListOf<Float>()
         val cList = mutableListOf<Float>()
 
+        // 8 base triangles of an octahedron (strictly outward CCW winding)
+        val top = Vector3(0f, 1f, 0f)
+        val bot = Vector3(0f, -1f, 0f)
+        val px = Vector3(1f, 0f, 0f)
+        val nx = Vector3(-1f, 0f, 0f)
+        val pz = Vector3(0f, 0f, 1f)
+        val nz = Vector3(0f, 0f, -1f)
+
+        val baseTris = listOf(
+            // Top 4 triangles (apex to base)
+            CloudTri(top, pz, px),
+            CloudTri(top, nx, pz),
+            CloudTri(top, nz, nx),
+            CloudTri(top, px, nz),
+            // Bottom 4 triangles (base to bottom)
+            CloudTri(bot, px, pz),
+            CloudTri(bot, pz, nx),
+            CloudTri(bot, nx, nz),
+            CloudTri(bot, nz, px)
+        )
+
+        // Subdivide 1 time: 8 -> 32 outward-facing equilateral facets
+        val subTris = mutableListOf<CloudTri>()
+        for (tri in baseTris) {
+            val ab = (tri.a + tri.b).normalized()
+            val bc = (tri.b + tri.c).normalized()
+            val ca = (tri.c + tri.a).normalized()
+            subTris.add(CloudTri(tri.a, ab, ca))
+            subTris.add(CloudTri(ab, tri.b, bc))
+            subTris.add(CloudTri(ca, bc, tri.c))
+            subTris.add(CloudTri(ab, bc, ca))
+        }
+
         fun addPuff(
             cx: Float, cy: Float, cz: Float,
             rx: Float, ry: Float, rz: Float,
-            latSegments: Int = 6, lonSegments: Int = 8
+            flattenBottom: Boolean = true
         ) {
-            val gridX = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
-            val gridY = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
-            val gridZ = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
-            val gridNx = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
-            val gridNy = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
-            val gridNz = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
-            val gridR = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
-            val gridG = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
-            val gridB = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
-
-            for (i in 0..latSegments) {
-                val lat = (Math.PI * i / latSegments).toFloat()
-                val sinLat = sin(lat)
-                val cosLat = cos(lat)
-
-                for (j in 0..lonSegments) {
-                    val lon = (2.0 * Math.PI * j / lonSegments).toFloat()
-                    val sinLon = sin(lon)
-                    val cosLon = cos(lon)
-
-                    val nx = sinLat * cosLon
-                    val ny = cosLat
-                    val nz = sinLat * sinLon
-
-                    gridX[i][j] = cx + rx * nx
-                    gridY[i][j] = cy + ry * ny
-                    gridZ[i][j] = cz + rz * nz
-                    gridNx[i][j] = nx
-                    gridNy[i][j] = ny
-                    gridNz[i][j] = nz
-
-                    // Cloud shading: bright sunlit tops, soft ambient sides, shaded undersides
-                    if (ny > 0.25f) {
-                        gridR[i][j] = 0.98f; gridG[i][j] = 0.98f; gridB[i][j] = 1.0f
-                    } else if (ny >= -0.25f) {
-                        gridR[i][j] = 0.92f; gridG[i][j] = 0.94f; gridB[i][j] = 0.98f
-                    } else {
-                        gridR[i][j] = 0.76f; gridG[i][j] = 0.81f; gridB[i][j] = 0.88f
-                    }
+            for (tri in subTris) {
+                fun transform(u: Vector3): Vector3 {
+                    val yMult = if (flattenBottom && u.y < 0f) 0.45f else 1.0f
+                    return Vector3(
+                        cx + rx * u.x,
+                        cy + ry * (u.y * yMult),
+                        cz + rz * u.z
+                    )
                 }
-            }
 
-            // Build CCW outward-facing quad triangles
-            for (i in 0 until latSegments) {
-                for (j in 0 until lonSegments) {
-                    val jNext = j + 1
+                val p1 = transform(tri.a)
+                val p2 = transform(tri.b)
+                val p3 = transform(tri.c)
 
-                    // Triangle 1: (i, j) -> (i+1, j) -> (i, jNext)
-                    vList.add(gridX[i][j]); vList.add(gridY[i][j]); vList.add(gridZ[i][j])
-                    nList.add(gridNx[i][j]); nList.add(gridNy[i][j]); nList.add(gridNz[i][j])
-                    cList.add(gridR[i][j]); cList.add(gridG[i][j]); cList.add(gridB[i][j]); cList.add(1f)
+                // Compute exact outward flat face normal
+                val e1 = p2 - p1
+                val e2 = p3 - p1
+                var fn = e1.cross(e2)
+                val len = fn.length()
+                fn = if (len > 1e-6f) fn / len else Vector3.UP
 
-                    vList.add(gridX[i + 1][j]); vList.add(gridY[i + 1][j]); vList.add(gridZ[i + 1][j])
-                    nList.add(gridNx[i + 1][j]); nList.add(gridNy[i + 1][j]); nList.add(gridNz[i + 1][j])
-                    cList.add(gridR[i + 1][j]); cList.add(gridG[i + 1][j]); cList.add(gridB[i + 1][j]); cList.add(1f)
+                // Shading palette based on facet angle
+                val r: Float
+                val g: Float
+                val b: Float
+                if (fn.y > 0.30f) {
+                    // Sunlit tops: brilliant crisp cloud white
+                    r = 0.99f; g = 0.99f; b = 1.0f
+                } else if (fn.y >= -0.15f) {
+                    // Soft ambient sides
+                    r = 0.93f; g = 0.95f; b = 0.98f
+                } else {
+                    // Shaded cloud underside with soft sky ambient tone
+                    r = 0.74f; g = 0.79f; b = 0.86f
+                }
 
-                    vList.add(gridX[i][jNext]); vList.add(gridY[i][jNext]); vList.add(gridZ[i][jNext])
-                    nList.add(gridNx[i][jNext]); nList.add(gridNy[i][jNext]); nList.add(gridNz[i][jNext])
-                    cList.add(gridR[i][jNext]); cList.add(gridG[i][jNext]); cList.add(gridB[i][jNext]); cList.add(1f)
-
-                    // Triangle 2: (i, jNext) -> (i+1, j) -> (i+1, jNext)
-                    vList.add(gridX[i][jNext]); vList.add(gridY[i][jNext]); vList.add(gridZ[i][jNext])
-                    nList.add(gridNx[i][jNext]); nList.add(gridNy[i][jNext]); nList.add(gridNz[i][jNext])
-                    cList.add(gridR[i][jNext]); cList.add(gridG[i][jNext]); cList.add(gridB[i][jNext]); cList.add(1f)
-
-                    vList.add(gridX[i + 1][j]); vList.add(gridY[i + 1][j]); vList.add(gridZ[i + 1][j])
-                    nList.add(gridNx[i + 1][j]); nList.add(gridNy[i + 1][j]); nList.add(gridNz[i + 1][j])
-                    cList.add(gridR[i + 1][j]); cList.add(gridG[i + 1][j]); cList.add(gridB[i + 1][j]); cList.add(1f)
-
-                    vList.add(gridX[i + 1][jNext]); vList.add(gridY[i + 1][jNext]); vList.add(gridZ[i + 1][jNext])
-                    nList.add(gridNx[i + 1][jNext]); nList.add(gridNy[i + 1][jNext]); nList.add(gridNz[i + 1][jNext])
-                    cList.add(gridR[i + 1][jNext]); cList.add(gridG[i + 1][jNext]); cList.add(gridB[i + 1][jNext]); cList.add(1f)
+                // Add 3 vertices with flat face normal
+                val pts = arrayOf(p1, p2, p3)
+                for (pt in pts) {
+                    vList.add(pt.x); vList.add(pt.y); vList.add(pt.z)
+                    nList.add(fn.x); nList.add(fn.y); nList.add(fn.z)
+                    cList.add(r); cList.add(g); cList.add(b); cList.add(1f)
                 }
             }
         }
 
-        fun addCloud(ox: Float, oy: Float, oz: Float, scale: Float) {
+        // Puffy Cumulus Formation with flat bottom base and towering domes
+        fun addCumulus(ox: Float, oy: Float, oz: Float, scale: Float) {
             val s = scale
-            addPuff(ox, oy, oz, 9.0f * s, 4.5f * s, 8.0f * s)
-            addPuff(ox - 6.0f * s, oy - 0.5f * s, oz + 1.2f * s, 6.5f * s, 3.8f * s, 6.0f * s)
-            addPuff(ox + 6.5f * s, oy - 0.8f * s, oz - 1.5f * s, 7.0f * s, 4.0f * s, 6.2f * s)
-            addPuff(ox + 1.2f * s, oy + 2.0f * s, oz - 0.5f * s, 5.5f * s, 3.6f * s, 5.2f * s)
-            addPuff(ox - 1.8f * s, oy - 0.6f * s, oz + 5.0f * s, 5.2f * s, 3.2f * s, 4.8f * s)
-            addPuff(ox + 2.5f * s, oy - 0.7f * s, oz - 4.5f * s, 5.8f * s, 3.5f * s, 5.2f * s)
+            // Wide flat base
+            addPuff(ox, oy, oz, 11.0f * s, 3.8f * s, 9.0f * s, flattenBottom = true)
+            // Left flank
+            addPuff(ox - 6.5f * s, oy + 0.5f * s, oz + 1.5f * s, 7.5f * s, 4.2f * s, 6.5f * s, flattenBottom = true)
+            // Right flank
+            addPuff(ox + 7.0f * s, oy + 0.3f * s, oz - 1.5f * s, 8.0f * s, 4.4f * s, 7.0f * s, flattenBottom = true)
+            // Tall central turret dome (spherical)
+            addPuff(ox + 0.5f * s, oy + 2.8f * s, oz - 0.5f * s, 6.5f * s, 5.0f * s, 6.0f * s, flattenBottom = false)
+            // Forward lobe
+            addPuff(ox - 1.8f * s, oy + 1.0f * s, oz + 5.0f * s, 5.8f * s, 3.8f * s, 5.2f * s, flattenBottom = true)
+            // Rear lobe
+            addPuff(ox + 2.5f * s, oy + 0.8f * s, oz - 4.8f * s, 6.0f * s, 4.0f * s, 5.5f * s, flattenBottom = true)
         }
 
-        // 1. Direct Overhead Zenith Clouds (Essential for 90° vertical acro maneuvers)
-        addCloud(0f, 48f, 0f, 1.2f)        // Dead-center overhead!
-        addCloud(18f, 52f, 18f, 1.1f)
-        addCloud(-20f, 50f, -15f, 1.05f)
+        // Horizontal Streak Cloud for atmospheric variation
+        fun addStreak(ox: Float, oy: Float, oz: Float, length: Float, scale: Float, angleDeg: Float) {
+            val rad = Math.toRadians(angleDeg.toDouble()).toFloat()
+            val dx = kotlin.math.cos(rad)
+            val dz = kotlin.math.sin(rad)
+            val s = scale
+            val steps = 4
+            for (step in 0 until steps) {
+                val t = (step - (steps - 1) * 0.5f) * (length / steps)
+                val ptX = ox + dx * t
+                val ptZ = oz + dz * t
+                val py = oy + kotlin.math.sin(step.toFloat() * 1.5f) * 1.2f * s
+                val puffRad = (5.5f + (step % 2) * 1.5f) * s
+                addPuff(ptX, py, ptZ, puffRad, 3.0f * s, puffRad * 0.85f, flattenBottom = true)
+            }
+        }
 
-        // 2. Mid-Altitude Clouds directly above and framing the racing circuit
-        addCloud(0f, 32f, 28f, 1.0f)
-        addCloud(26f, 35f, 48f, 1.15f)
-        addCloud(52f, 34f, 22f, 1.1f)
-        addCloud(32f, 36f, -16f, 1.05f)
-        addCloud(-16f, 31f, -24f, 0.95f)
-        addCloud(-30f, 34f, 16f, 1.0f)
+        // 1. Zenith Overhead Clouds (Immediately visible when looking straight up at 90°)
+        addCumulus(0f, 50f, 0f, 1.35f)          // Grand Central Zenith Formation
+        addCumulus(24f, 54f, 22f, 1.15f)
+        addCumulus(-24f, 52f, -20f, 1.1f)
+        addStreak(0f, 55f, -15f, 28f, 1.0f, 40f)
 
-        // 3. Perimeter Horizon Clouds (Covering all 8 compass headings for 360° horizon depth)
-        addCloud(0f, 38f, 80f, 1.45f)       // North
-        addCloud(65f, 41f, 65f, 1.35f)      // North-East
-        addCloud(85f, 37f, 0f, 1.4f)        // East
-        addCloud(60f, 40f, -65f, 1.35f)     // South-East
-        addCloud(0f, 36f, -80f, 1.45f)      // South
-        addCloud(-65f, 38f, -60f, 1.3f)     // South-West
-        addCloud(-80f, 37f, 0f, 1.4f)       // West
-        addCloud(-60f, 40f, 60f, 1.35f)     // North-West
+        // 2. Inner Track Ceiling (Y = 32..38m, perfectly framing the race course)
+        addCumulus(0f, 32f, 32f, 1.1f)          // North gate approach
+        addCumulus(35f, 36f, 48f, 1.2f)         // Gate 2/3 high turn
+        addCumulus(55f, 34f, 18f, 1.15f)        // East straight
+        addCumulus(38f, 37f, -20f, 1.1f)        // South-East turn
+        addCumulus(-15f, 32f, -28f, 1.0f)       // South back-straight
+        addCumulus(-32f, 35f, 14f, 1.05f)       // West final turn
+
+        // 3. Mid-Field Horizon Ring (Y = 36..42m, radius 60..85m)
+        addCumulus(0f, 38f, 85f, 1.45f)         // North
+        addStreak(65f, 41f, 65f, 35f, 1.3f, -30f) // North-East
+        addCumulus(88f, 37f, 0f, 1.4f)          // East
+        addStreak(60f, 40f, -65f, 32f, 1.25f, 20f)// South-East
+        addCumulus(0f, 36f, -85f, 1.45f)        // South
+        addStreak(-65f, 38f, -60f, 30f, 1.25f, -45f)// South-West
+        addCumulus(-85f, 37f, 0f, 1.4f)         // West
+        addStreak(-60f, 40f, 60f, 32f, 1.3f, 35f) // North-West
+
+        // 4. Far Perimeter Atmosphere (Y = 40..46m, radius 120..150m)
+        addCumulus(0f, 42f, 135f, 1.8f)
+        addCumulus(130f, 44f, 0f, 1.8f)
+        addCumulus(0f, 40f, -135f, 1.8f)
+        addCumulus(-130f, 43f, 0f, 1.8f)
 
         return RenderMesh(
             createFloatBuffer(vList.toFloatArray()),
