@@ -38,4 +38,20 @@ class GateTrackerTest {
         assertFalse("Gate passage should NOT be detected when missing", passed)
         assertEquals(0, tracker.totalGatesPassed)
     }
+
+    @Test
+    fun testDefaultLargeGateDimensions() {
+        val defaultGate = RacingGate(id = 1, position = Vector3(0f, 0f, 15f), yawDeg = 0f)
+        assertEquals(6.5f, defaultGate.width, 1e-3f)
+        assertEquals(5.0f, defaultGate.height, 1e-3f)
+
+        val tracker = GateTracker(listOf(defaultGate))
+        // Drone flies through near outer edge of enlarged aperture (X = 3.0, Y = 4.5)
+        val pPrev = Vector3(3.0f, 4.5f, 13f)
+        val pCurr = Vector3(3.0f, 4.5f, 17f)
+
+        val passed = tracker.update(pPrev, pCurr, 0.1f)
+        assertTrue("Passage near outer boundary of enlarged gate should be detected", passed)
+        assertEquals(1, tracker.totalGatesPassed)
+    }
 }

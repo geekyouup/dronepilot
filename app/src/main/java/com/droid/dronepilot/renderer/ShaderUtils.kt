@@ -37,7 +37,7 @@ object ShaderUtils {
         
         void main() {
             // Distance fog: blend with atmospheric sky color at long distances
-            float fogFactor = clamp((vDistance - 40.0) / 120.0, 0.0, 1.0);
+            float fogFactor = clamp((vDistance - 100.0) / 280.0, 0.0, 0.85);
             vec3 skyColor = vec3(0.53, 0.75, 0.95);
             vec3 litColor = vColor.rgb * vDiffuse;
             vec3 finalColor = mix(litColor, skyColor, fogFactor);

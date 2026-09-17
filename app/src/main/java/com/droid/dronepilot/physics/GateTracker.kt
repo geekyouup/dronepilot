@@ -9,8 +9,8 @@ data class RacingGate(
     val id: Int,
     val position: Vector3,
     val yawDeg: Float, // Direction facing
-    val width: Float = 3.5f,
-    val height: Float = 3.0f
+    val width: Float = 6.5f,
+    val height: Float = 5.0f
 ) {
     /**
      * Checks if a line segment from prevPos to currPos crossed through this gate's aperture.
@@ -97,13 +97,13 @@ class GateTracker(
 
     companion object {
         fun defaultCourse(): List<RacingGate> = listOf(
-            RacingGate(1, Vector3(0f, 0f, 15f), 0f),
-            RacingGate(2, Vector3(15f, 0f, 35f), 45f),
-            RacingGate(3, Vector3(35f, 0f, 35f), 90f),
-            RacingGate(4, Vector3(45f, 0f, 10f), 150f),
-            RacingGate(5, Vector3(30f, 0f, -15f), 210f),
-            RacingGate(6, Vector3(5f, 0f, -20f), 260f),
-            RacingGate(7, Vector3(-15f, 0f, 0f), 320f)
+            RacingGate(1, Vector3(0f, 0f, 18f), 0f),
+            RacingGate(2, Vector3(18f, 0f, 42f), 45f),
+            RacingGate(3, Vector3(48f, 0f, 42f), 90f),
+            RacingGate(4, Vector3(58f, 0f, 12f), 150f),
+            RacingGate(5, Vector3(38f, 0f, -20f), 210f),
+            RacingGate(6, Vector3(6f, 0f, -26f), 260f),
+            RacingGate(7, Vector3(-20f, 0f, 0f), 320f)
         )
     }
 }

@@ -85,6 +85,7 @@ class DroneRenderer(
 
     // Meshes
     private var groundMesh: RenderMesh? = null
+    private var cloudsMesh: RenderMesh? = null
     private var droneMesh: RenderMesh? = null
     private var propMesh: RenderMesh? = null
     private var gateMesh: RenderMesh? = null
@@ -117,6 +118,7 @@ class DroneRenderer(
 
         // Build 3D meshes
         groundMesh = MeshFactory.createGroundMesh()
+        cloudsMesh = MeshFactory.createCloudClusterMesh()
         droneMesh = MeshFactory.createDroneFrameMesh()
         propMesh = MeshFactory.createPropellerMesh()
         gateMesh = MeshFactory.createGateMesh()
@@ -203,6 +205,10 @@ class DroneRenderer(
         // Draw Ground
         Matrix.setIdentityM(modelMatrix, 0)
         drawMesh(groundMesh)
+
+        // Draw Sky Clouds
+        Matrix.setIdentityM(modelMatrix, 0)
+        drawMesh(cloudsMesh)
 
         // Draw Racing Gates
         drawGates()

@@ -259,9 +259,9 @@ object MeshFactory {
     }
 
     /**
-     * Builds a 3D FPV Racing Gate Arch (Left column, right column, top lintel).
+     * Builds a 3D FPV Racing Gate Arch (Left column, right column, top lintel) with high-visibility racing stripes.
      */
-    fun createGateMesh(width: Float = 3.5f, height: Float = 3.0f, thick: Float = 0.25f): RenderMesh {
+    fun createGateMesh(width: Float = 6.5f, height: Float = 5.0f, thick: Float = 0.35f): RenderMesh {
         val vList = mutableListOf<Float>()
         val nList = mutableListOf<Float>()
         val cList = mutableListOf<Float>()
@@ -307,12 +307,166 @@ object MeshFactory {
             }
         }
 
-        // Left Pillar
-        addBox(-width * 0.5f, height * 0.5f, 0f, thick, height, thick, 1.0f, 0.55f, 0.0f)
-        // Right Pillar
-        addBox(width * 0.5f, height * 0.5f, 0f, thick, height, thick, 1.0f, 0.55f, 0.0f)
-        // Top Arch
-        addBox(0f, height, 0f, width + thick, thick, thick, 0.0f, 0.9f, 1.0f)
+        // Heavy Base Pads on ground
+        val basePadSize = thick * 2.2f
+        addBox(-width * 0.5f, 0.08f, 0f, basePadSize, 0.16f, basePadSize, 0.25f, 0.28f, 0.32f)
+        addBox(width * 0.5f, 0.08f, 0f, basePadSize, 0.16f, basePadSize, 0.25f, 0.28f, 0.32f)
+
+        // Striped Pillars (5 alternating segments of high-vis racing orange & white)
+        val segments = 5
+        val segHeight = height / segments
+        for (s in 0 until segments) {
+            val segCenterY = (s + 0.5f) * segHeight
+            val isOrange = (s % 2 == 0)
+            val r = if (isOrange) 1.0f else 0.95f
+            val g = if (isOrange) 0.45f else 0.95f
+            val b = if (isOrange) 0.0f else 0.98f
+
+            // Left pillar segment
+            addBox(-width * 0.5f, segCenterY, 0f, thick, segHeight, thick, r, g, b)
+            // Right pillar segment
+            addBox(width * 0.5f, segCenterY, 0f, thick, segHeight, thick, r, g, b)
+        }
+
+        // Top Arch Lintel (electric cyan)
+        addBox(0f, height, 0f, width + thick, thick, thick, 0.0f, 0.92f, 1.0f)
+
+        // High-vis Neon Yellow Corner Markers for easy aperture target acquisition
+        val cornerSize = thick * 1.25f
+        addBox(-width * 0.5f, height, 0f, cornerSize, cornerSize, cornerSize, 1.0f, 0.92f, 0.0f)
+        addBox(width * 0.5f, height, 0f, cornerSize, cornerSize, cornerSize, 1.0f, 0.92f, 0.0f)
+
+        return RenderMesh(
+            createFloatBuffer(vList.toFloatArray()),
+            createFloatBuffer(nList.toFloatArray()),
+            createFloatBuffer(cList.toFloatArray()),
+            vList.size / 3
+        )
+    }
+
+    /**
+     * Builds a rich 3D volumetric sky filled with multi-altitude clouds.
+     * Provides essential motion parallax, spatial orientation, and visual landmarks
+     * when looking up or flying vertical acro maneuvers.
+     */
+    fun createCloudClusterMesh(): RenderMesh {
+        val vList = mutableListOf<Float>()
+        val nList = mutableListOf<Float>()
+        val cList = mutableListOf<Float>()
+
+        fun addPuff(
+            cx: Float, cy: Float, cz: Float,
+            rx: Float, ry: Float, rz: Float,
+            latSegments: Int = 6, lonSegments: Int = 8
+        ) {
+            val gridX = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
+            val gridY = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
+            val gridZ = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
+            val gridNx = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
+            val gridNy = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
+            val gridNz = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
+            val gridR = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
+            val gridG = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
+            val gridB = Array(latSegments + 1) { FloatArray(lonSegments + 1) }
+
+            for (i in 0..latSegments) {
+                val lat = (Math.PI * i / latSegments).toFloat()
+                val sinLat = sin(lat)
+                val cosLat = cos(lat)
+
+                for (j in 0..lonSegments) {
+                    val lon = (2.0 * Math.PI * j / lonSegments).toFloat()
+                    val sinLon = sin(lon)
+                    val cosLon = cos(lon)
+
+                    val nx = sinLat * cosLon
+                    val ny = cosLat
+                    val nz = sinLat * sinLon
+
+                    gridX[i][j] = cx + rx * nx
+                    gridY[i][j] = cy + ry * ny
+                    gridZ[i][j] = cz + rz * nz
+                    gridNx[i][j] = nx
+                    gridNy[i][j] = ny
+                    gridNz[i][j] = nz
+
+                    // Cloud shading: bright sunlit tops, soft ambient sides, shaded undersides
+                    if (ny > 0.25f) {
+                        gridR[i][j] = 0.98f; gridG[i][j] = 0.98f; gridB[i][j] = 1.0f
+                    } else if (ny >= -0.25f) {
+                        gridR[i][j] = 0.92f; gridG[i][j] = 0.94f; gridB[i][j] = 0.98f
+                    } else {
+                        gridR[i][j] = 0.76f; gridG[i][j] = 0.81f; gridB[i][j] = 0.88f
+                    }
+                }
+            }
+
+            // Build CCW outward-facing quad triangles
+            for (i in 0 until latSegments) {
+                for (j in 0 until lonSegments) {
+                    val jNext = j + 1
+
+                    // Triangle 1: (i, j) -> (i+1, j) -> (i, jNext)
+                    vList.add(gridX[i][j]); vList.add(gridY[i][j]); vList.add(gridZ[i][j])
+                    nList.add(gridNx[i][j]); nList.add(gridNy[i][j]); nList.add(gridNz[i][j])
+                    cList.add(gridR[i][j]); cList.add(gridG[i][j]); cList.add(gridB[i][j]); cList.add(1f)
+
+                    vList.add(gridX[i + 1][j]); vList.add(gridY[i + 1][j]); vList.add(gridZ[i + 1][j])
+                    nList.add(gridNx[i + 1][j]); nList.add(gridNy[i + 1][j]); nList.add(gridNz[i + 1][j])
+                    cList.add(gridR[i + 1][j]); cList.add(gridG[i + 1][j]); cList.add(gridB[i + 1][j]); cList.add(1f)
+
+                    vList.add(gridX[i][jNext]); vList.add(gridY[i][jNext]); vList.add(gridZ[i][jNext])
+                    nList.add(gridNx[i][jNext]); nList.add(gridNy[i][jNext]); nList.add(gridNz[i][jNext])
+                    cList.add(gridR[i][jNext]); cList.add(gridG[i][jNext]); cList.add(gridB[i][jNext]); cList.add(1f)
+
+                    // Triangle 2: (i, jNext) -> (i+1, j) -> (i+1, jNext)
+                    vList.add(gridX[i][jNext]); vList.add(gridY[i][jNext]); vList.add(gridZ[i][jNext])
+                    nList.add(gridNx[i][jNext]); nList.add(gridNy[i][jNext]); nList.add(gridNz[i][jNext])
+                    cList.add(gridR[i][jNext]); cList.add(gridG[i][jNext]); cList.add(gridB[i][jNext]); cList.add(1f)
+
+                    vList.add(gridX[i + 1][j]); vList.add(gridY[i + 1][j]); vList.add(gridZ[i + 1][j])
+                    nList.add(gridNx[i + 1][j]); nList.add(gridNy[i + 1][j]); nList.add(gridNz[i + 1][j])
+                    cList.add(gridR[i + 1][j]); cList.add(gridG[i + 1][j]); cList.add(gridB[i + 1][j]); cList.add(1f)
+
+                    vList.add(gridX[i + 1][jNext]); vList.add(gridY[i + 1][jNext]); vList.add(gridZ[i + 1][jNext])
+                    nList.add(gridNx[i + 1][jNext]); nList.add(gridNy[i + 1][jNext]); nList.add(gridNz[i + 1][jNext])
+                    cList.add(gridR[i + 1][jNext]); cList.add(gridG[i + 1][jNext]); cList.add(gridB[i + 1][jNext]); cList.add(1f)
+                }
+            }
+        }
+
+        fun addCloud(ox: Float, oy: Float, oz: Float, scale: Float) {
+            val s = scale
+            addPuff(ox, oy, oz, 9.0f * s, 4.5f * s, 8.0f * s)
+            addPuff(ox - 6.0f * s, oy - 0.5f * s, oz + 1.2f * s, 6.5f * s, 3.8f * s, 6.0f * s)
+            addPuff(ox + 6.5f * s, oy - 0.8f * s, oz - 1.5f * s, 7.0f * s, 4.0f * s, 6.2f * s)
+            addPuff(ox + 1.2f * s, oy + 2.0f * s, oz - 0.5f * s, 5.5f * s, 3.6f * s, 5.2f * s)
+            addPuff(ox - 1.8f * s, oy - 0.6f * s, oz + 5.0f * s, 5.2f * s, 3.2f * s, 4.8f * s)
+            addPuff(ox + 2.5f * s, oy - 0.7f * s, oz - 4.5f * s, 5.8f * s, 3.5f * s, 5.2f * s)
+        }
+
+        // 1. Direct Overhead Zenith Clouds (Essential for 90° vertical acro maneuvers)
+        addCloud(0f, 48f, 0f, 1.2f)        // Dead-center overhead!
+        addCloud(18f, 52f, 18f, 1.1f)
+        addCloud(-20f, 50f, -15f, 1.05f)
+
+        // 2. Mid-Altitude Clouds directly above and framing the racing circuit
+        addCloud(0f, 32f, 28f, 1.0f)
+        addCloud(26f, 35f, 48f, 1.15f)
+        addCloud(52f, 34f, 22f, 1.1f)
+        addCloud(32f, 36f, -16f, 1.05f)
+        addCloud(-16f, 31f, -24f, 0.95f)
+        addCloud(-30f, 34f, 16f, 1.0f)
+
+        // 3. Perimeter Horizon Clouds (Covering all 8 compass headings for 360° horizon depth)
+        addCloud(0f, 38f, 80f, 1.45f)       // North
+        addCloud(65f, 41f, 65f, 1.35f)      // North-East
+        addCloud(85f, 37f, 0f, 1.4f)        // East
+        addCloud(60f, 40f, -65f, 1.35f)     // South-East
+        addCloud(0f, 36f, -80f, 1.45f)      // South
+        addCloud(-65f, 38f, -60f, 1.3f)     // South-West
+        addCloud(-80f, 37f, 0f, 1.4f)       // West
+        addCloud(-60f, 40f, 60f, 1.35f)     // North-West
 
         return RenderMesh(
             createFloatBuffer(vList.toFloatArray()),
