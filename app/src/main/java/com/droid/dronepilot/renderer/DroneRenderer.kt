@@ -13,6 +13,8 @@ import com.droid.dronepilot.physics.Quaternion
 import com.droid.dronepilot.physics.Vector3
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
+import kotlin.math.asin
+import kotlin.math.atan2
 import kotlin.math.max
 import kotlin.math.min
 
@@ -28,6 +30,9 @@ data class DroneTelemetry(
     val pitchDeg: Float = 0f,
     val rollDeg: Float = 0f,
     val yawDeg: Float = 0f,
+    val horizonPitchDeg: Float = 0f,
+    val horizonRollDeg: Float = 0f,
+    val fovYDeg: Float = 75f,
     val batteryVoltage: Float = 16.8f,
     val flightMode: FlightMode = FlightMode.ASSISTED,
     val cameraMode: CameraMode = CameraMode.CHASE,
@@ -87,6 +92,12 @@ class DroneRenderer(
     // Rotor spin angles (radians)
     private val propAngles = FloatArray(4) { 0f }
 
+    // Camera basis vectors in world coordinates
+    private var camForward = Vector3.FORWARD
+    private var camUp = Vector3.UP
+    private var camRight = Vector3.RIGHT
+    private var lastStableHorizonRollDeg = 0f
+
     private var lastTimeNs: Long = 0L
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
@@ -135,6 +146,7 @@ class DroneRenderer(
             flightController.reset()
             gateTracker.reset()
             batteryVoltage = 16.8f
+            lastStableHorizonRollDeg = 0f
         }
 
         // 1. Physics & Flight Controller Simulation Step (with 8x substepping for numerical stability)
@@ -203,6 +215,23 @@ class DroneRenderer(
         // 8. Publish Telemetry
         val speedKmh = physics.velocity.length() * 3.6f
         val (pitchRad, yawRad, rollRad) = physics.orientation.toEuler()
+
+        // Calculate horizon pitch and roll in camera frame for the HUD artificial horizon
+        val sinPitch = camForward.y.coerceIn(-1f, 1f)
+        val horizonPitchDeg = Math.toDegrees(asin(sinPitch.toDouble())).toFloat()
+
+        // Horizon roll: atan2(camRight.y, camUp.y).
+        // When pointing near vertical (|sinPitch| > 0.995), roll is undefined (singularity);
+        // maintain the last stable roll angle to prevent visual jitter.
+        val rXy = kotlin.math.sqrt(camRight.y * camRight.y + camUp.y * camUp.y)
+        val horizonRollDeg = if (rXy >= 0.05f) {
+            val roll = Math.toDegrees(atan2(camRight.y.toDouble(), camUp.y.toDouble())).toFloat()
+            lastStableHorizonRollDeg = roll
+            roll
+        } else {
+            lastStableHorizonRollDeg
+        }
+
         val telemetry = DroneTelemetry(
             speedKmh = speedKmh,
             altitudeMeters = physics.position.y - physics.groundClearance,
@@ -210,6 +239,9 @@ class DroneRenderer(
             pitchDeg = Math.toDegrees(pitchRad.toDouble()).toFloat(),
             rollDeg = Math.toDegrees(rollRad.toDouble()).toFloat(),
             yawDeg = Math.toDegrees(yawRad.toDouble()).toFloat(),
+            horizonPitchDeg = horizonPitchDeg,
+            horizonRollDeg = horizonRollDeg,
+            fovYDeg = 75f,
             batteryVoltage = batteryVoltage,
             flightMode = flightController.mode,
             cameraMode = cameraMode,
@@ -233,15 +265,16 @@ class DroneRenderer(
 
             // Eye at drone nose
             val eye = physics.position + physics.orientation.rotate(Vector3(0f, 0.05f, 0.08f))
-            val forward = camOrientation.forward()
-            val up = camOrientation.up()
-            val center = eye + forward
+            camForward = camOrientation.forward()
+            camUp = camOrientation.up()
+            camRight = camOrientation.right()
+            val center = eye + camForward
 
             Matrix.setLookAtM(
                 viewMatrix, 0,
                 eye.x, eye.y, eye.z,
                 center.x, center.y, center.z,
-                up.x, up.y, up.z
+                camUp.x, camUp.y, camUp.z
             )
         } else {
             // 3rd Person Chase Camera: 2.5m behind, 0.8m above drone
@@ -249,6 +282,11 @@ class DroneRenderer(
             val forward = physics.orientation.forward()
             val eye = dronePos - forward * 2.2f + Vector3(0f, 0.75f, 0f)
             val center = dronePos + forward * 1.5f
+            val lookDir = (center - eye).normalized()
+            camForward = lookDir
+            camUp = Vector3.UP
+            val crossRight = camForward.cross(camUp).normalized()
+            camRight = if (crossRight.lengthSquared() > 0.001f) crossRight else Vector3.RIGHT
 
             Matrix.setLookAtM(
                 viewMatrix, 0,

@@ -80,23 +80,29 @@ data class Quaternion(
      * Roll: rotation around Z axis [-pi, pi]
      */
     fun toEuler(): Triple<Float, Float, Float> {
-        // roll (z-axis rotation)
-        val sinrCosp = 2f * (w * z + x * y)
-        val cosrCosp = 1f - 2f * (y * y + z * z)
-        val roll = atan2(sinrCosp, cosrCosp)
-
-        // pitch (x-axis rotation)
         val sinp = 2f * (w * x - y * z)
-        val pitch = if (kotlin.math.abs(sinp) >= 1f) {
-            Math.copySign(Math.PI.toFloat() / 2f, sinp)
-        } else {
-            asin(sinp)
-        }
+        val pitch: Float
+        val yaw: Float
+        val roll: Float
 
-        // yaw (y-axis rotation)
-        val sinyCosp = 2f * (w * y + x * z)
-        val cosyCosp = 1f - 2f * (x * x + y * y)
-        val yaw = atan2(sinyCosp, cosyCosp)
+        if (sinp >= 0.9999f) {
+            pitch = Math.PI.toFloat() / 2f
+            yaw = 2f * atan2(y, w)
+            roll = 0f
+        } else if (sinp <= -0.9999f) {
+            pitch = -Math.PI.toFloat() / 2f
+            yaw = -2f * atan2(y, w)
+            roll = 0f
+        } else {
+            pitch = asin(sinp)
+            val sinrCosp = 2f * (w * z + x * y)
+            val cosrCosp = 1f - 2f * (y * y + z * z)
+            roll = atan2(sinrCosp, cosrCosp)
+
+            val sinyCosp = 2f * (w * y + x * z)
+            val cosyCosp = 1f - 2f * (x * x + y * y)
+            yaw = atan2(sinyCosp, cosyCosp)
+        }
 
         return Triple(pitch, yaw, roll)
     }

@@ -64,16 +64,12 @@ fun FlightHud(
     Box(modifier = Modifier.fillMaxSize()) {
 
         // 1. Artificial Horizon Overlay
-        // In FPV mode, the camera is tilted upward relative to the drone body.
-        // Offsetting by fpvCameraTiltDeg ensures the HUD horizon line precisely overlays the 3D ground horizon.
-        val effectivePitch = if (telemetry.cameraMode == CameraMode.FPV) {
-            telemetry.pitchDeg - telemetry.fpvCameraTiltDeg
-        } else {
-            telemetry.pitchDeg
-        }
+        // The horizon pitch, roll, and field of view are computed directly from the 3D camera orientation
+        // in world space, guaranteeing exact 1:1 overlay with the rendered ground terrain.
         ArtificialHorizon(
-            pitchDeg = effectivePitch,
-            rollDeg = telemetry.rollDeg,
+            pitchDeg = telemetry.horizonPitchDeg,
+            rollDeg = telemetry.horizonRollDeg,
+            fovYDeg = telemetry.fovYDeg,
             modifier = Modifier.fillMaxSize()
         )
 
@@ -495,49 +491,105 @@ fun HudButton(text: String, color: Color, onClick: () -> Unit) {
 }
 
 @Composable
-fun ArtificialHorizon(pitchDeg: Float, rollDeg: Float, modifier: Modifier = Modifier) {
+fun ArtificialHorizon(
+    pitchDeg: Float,
+    rollDeg: Float,
+    fovYDeg: Float = 75f,
+    modifier: Modifier = Modifier
+) {
     Canvas(modifier = modifier) {
         val cx = size.width / 2f
         val cy = size.height / 2f
 
-        // Center reticle
+        // Center reticle (fixed to drone camera optical axis / screen center)
+        val reticleColor = Color(0xCC00E5FF)
+        val strokeWidth = 2.dp.toPx()
         drawLine(
-            color = Color(0xAA00E5FF),
-            start = Offset(cx - 30f, cy),
+            color = reticleColor,
+            start = Offset(cx - 32f, cy),
             end = Offset(cx - 10f, cy),
-            strokeWidth = 2.dp.toPx()
+            strokeWidth = strokeWidth
         )
         drawLine(
-            color = Color(0xAA00E5FF),
+            color = reticleColor,
             start = Offset(cx + 10f, cy),
-            end = Offset(cx + 30f, cy),
-            strokeWidth = 2.dp.toPx()
+            end = Offset(cx + 32f, cy),
+            strokeWidth = strokeWidth
         )
         drawLine(
-            color = Color(0xAA00E5FF),
+            color = reticleColor,
             start = Offset(cx, cy - 8f),
             end = Offset(cx, cy + 8f),
-            strokeWidth = 2.dp.toPx()
+            strokeWidth = strokeWidth
         )
 
-        // Pitch ladder & roll indicator (rotated around center by roll angle)
-        rotate(degrees = -rollDeg, pivot = Offset(cx, cy)) {
-            // Pixels per degree of pitch
-            val pxPerDeg = 3.5f
-            val pitchOffset = pitchDeg * pxPerDeg
+        // Exact vertical focal length in pixels derived from vertical FOV
+        val halfFovRad = Math.toRadians((fovYDeg * 0.5f).toDouble()).toFloat()
+        val fy = (size.height * 0.5f) / kotlin.math.tan(halfFovRad)
+
+        // Rotate canvas by rollDeg around screen center so that the ladder aligns with the ground plane.
+        // rollDeg = atan2(camRight.y, camUp.y) is already negative for right bank,
+        // which matches Compose's clockwise canvas coordinate system.
+        rotate(degrees = rollDeg, pivot = Offset(cx, cy)) {
+            val maxLadderDist = 140.dp.toPx()
 
             // Ladder rungs at -40, -30, -20, -10, 0 (horizon), +10, +20, +30, +40 degrees
             for (rungDeg in -40..40 step 10) {
-                val y = cy - (rungDeg * pxPerDeg) - pitchOffset
-                if (y in (cy - 120f)..(cy + 120f)) {
-                    val halfW = if (rungDeg == 0) 50f else 28f
-                    val rungColor = if (rungDeg == 0) Color(0xCC00E5FF) else Color(0x8800E5FF)
-                    drawLine(
-                        color = rungColor,
-                        start = Offset(cx - halfW, y),
-                        end = Offset(cx + halfW, y),
-                        strokeWidth = if (rungDeg == 0) 2.5.dp.toPx() else 1.5.dp.toPx()
-                    )
+                // Angular difference from camera view direction (in degrees)
+                val deltaDeg = rungDeg - pitchDeg
+
+                // Cull rungs outside visible FOV half-angle to prevent tangent divergence
+                if (kotlin.math.abs(deltaDeg) > 36f) continue
+
+                val deltaRad = Math.toRadians(deltaDeg.toDouble()).toFloat()
+                // In perspective projection, screen displacement is -fy * tan(deltaRad)
+                val y = cy - fy * kotlin.math.tan(deltaRad)
+
+                if (y in (cy - maxLadderDist)..(cy + maxLadderDist)) {
+                    if (rungDeg == 0) {
+                        // Prominent 0° Horizon Line: two wings with a central gap for the reticle
+                        val wingStart = 18f
+                        val wingEnd = 70f
+                        val horizonColor = Color(0xEE00E5FF)
+                        val horizonStroke = 2.5.dp.toPx()
+                        drawLine(
+                            color = horizonColor,
+                            start = Offset(cx - wingEnd, y),
+                            end = Offset(cx - wingStart, y),
+                            strokeWidth = horizonStroke
+                        )
+                        drawLine(
+                            color = horizonColor,
+                            start = Offset(cx + wingStart, y),
+                            end = Offset(cx + wingEnd, y),
+                            strokeWidth = horizonStroke
+                        )
+                    } else {
+                        // Pitch ladder rungs: symmetric bars with small tick marks pointing toward the horizon
+                        val halfW = 28f
+                        val rungColor = Color(0x9900E5FF)
+                        val rungStroke = 1.5.dp.toPx()
+                        drawLine(
+                            color = rungColor,
+                            start = Offset(cx - halfW, y),
+                            end = Offset(cx + halfW, y),
+                            strokeWidth = rungStroke
+                        )
+                        // Downward tick marks for positive pitch, upward tick marks for negative pitch (pointing towards 0° horizon)
+                        val tickDir = if (rungDeg > 0) 6f else -6f
+                        drawLine(
+                            color = rungColor,
+                            start = Offset(cx - halfW, y),
+                            end = Offset(cx - halfW, y + tickDir),
+                            strokeWidth = rungStroke
+                        )
+                        drawLine(
+                            color = rungColor,
+                            start = Offset(cx + halfW, y),
+                            end = Offset(cx + halfW, y + tickDir),
+                            strokeWidth = rungStroke
+                        )
+                    }
                 }
             }
         }
